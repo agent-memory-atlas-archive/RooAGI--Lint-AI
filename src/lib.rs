@@ -96,6 +96,7 @@ mod rules;
 mod symbols;
 mod temporal;
 mod tier1;
+mod tier1_ner_daemon;
 pub mod tokenizer;
 mod usage;
 
@@ -125,6 +126,9 @@ pub use crate::temporal_fact::{TemporalFact, TemporalFactStore, TimelineEvent, T
 // Re-exported so the public `index::DocRecord` struct can be constructed by
 // downstream users (`key_entities` / `important_terms` fields).
 pub use crate::tier1::{RankedTerm, Tier1Entity};
+// Re-exported so binaries (the server, benchmarks) can prewarm the
+// long-lived spaCy NER daemon, mirroring the extractor/behood daemons.
+pub use crate::tier1_ner_daemon::NerDaemon;
 // Date helper for building timestamped documents (used by benchmarks; also
 // useful for anyone constructing `SourceDocument`s with timestamps).
 pub use crate::temporal::parse_temporal_date;
