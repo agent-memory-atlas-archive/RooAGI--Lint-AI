@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use tantivy::doc;
 #[derive(Debug, Clone, ValueEnum)]
 pub enum Tier1NerProvider {
-    Heuristic,
     Spacy,
 }
 
@@ -101,7 +100,7 @@ pub struct PipelineOptions {
 impl Default for PipelineOptions {
     fn default() -> Self {
         Self {
-            ner_provider: Tier1NerProvider::Heuristic,
+            ner_provider: Tier1NerProvider::Spacy,
             spacy_model: "en_core_web_sm".to_string(),
             term_ranker: Tier1TermRankerKind::Yake,
             chunk_strategy: ChunkStrategy::Heading,

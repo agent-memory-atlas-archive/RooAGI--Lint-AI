@@ -10,10 +10,9 @@ use crate::index::{DocRecord, MemoryIndex, Provenance};
 use crate::source::SourceDocument;
 use crate::temporal::extract_temporal_terms;
 use crate::tier1::{
-    default_spacy_script_path, CValueStyleTermRanker, HeuristicKeyEntityRanker,
-    ImportantTermRanker, KeyEntityRanker, RakeStyleTermRanker, SpacyKeyEntityRanker,
-    TextRankStyleTermRanker, Tier1DocInput, Tier1Entity, YakeStyleTermRanker,
-    BEHOOD_NP_ENTITY_SOURCE,
+    default_spacy_script_path, CValueStyleTermRanker, ImportantTermRanker, KeyEntityRanker,
+    RakeStyleTermRanker, SpacyKeyEntityRanker, TextRankStyleTermRanker, Tier1DocInput, Tier1Entity,
+    YakeStyleTermRanker, BEHOOD_NP_ENTITY_SOURCE,
 };
 use anyhow::Result;
 use sha2::{Digest, Sha256};
@@ -281,10 +280,10 @@ fn guess_doc_type(headings: &[String], content: &str) -> Option<String> {
 /// [`doc_record_content_hash`]) are the only `PipelineOptions` inputs that can
 /// change a built [`DocRecord`].
 fn extraction_identity(options: &PipelineOptions) -> (String, String) {
-    let ner_provider_name = match &options.ner_provider {
-        Tier1NerProvider::Heuristic => "heuristic".to_string(),
-        Tier1NerProvider::Spacy => format!("spacy:{}", options.spacy_model),
-    };
+    // Luyi 2026-09-29: spaCy NER is the only Tier1 provider. The heuristic
+    // ranker admitted junk entities ("The", "user", "memory") into the
+    // 2.4x-weighted entities field, so it was removed outright.
+    let ner_provider_name = format!("spacy:{}", options.spacy_model);
     let term_ranker_name = select_term_ranker(&options.term_ranker).name().to_string();
     (ner_provider_name, term_ranker_name)
 }
@@ -437,25 +436,22 @@ pub fn build_doc_records(
 ) -> Result<Vec<DocRecord>> {
     let docs = source_documents_to_tier1_inputs(source_docs);
 
-    let heuristic = HeuristicKeyEntityRanker;
-    let entities_by_doc = match &options.ner_provider {
-        Tier1NerProvider::Heuristic => heuristic.rank_docs(&docs)?,
-        Tier1NerProvider::Spacy => {
-            let spacy = SpacyKeyEntityRanker {
-                model: options.spacy_model.clone(),
-                script_path: default_spacy_script_path().display().to_string(),
-            };
-            match spacy.rank_docs(&docs) {
-                Ok(out) => out,
-                Err(err) => {
-                    eprintln!(
-                        "warning: {} ranker unavailable ({}), falling back to heuristic",
-                        spacy.name(),
-                        err
-                    );
-                    heuristic.rank_docs(&docs).unwrap_or_default()
-                }
-            }
+    // Luyi 2026-09-29: always NER from spaCy. Fail OPEN with zero NER key
+    // entities when the spaCy subprocess is unavailable (loud warning) —
+    // bekind-np key phrases still flow and lexical retrieval is unaffected.
+    let spacy = SpacyKeyEntityRanker {
+        model: options.spacy_model.clone(),
+        script_path: default_spacy_script_path().display().to_string(),
+    };
+    let entities_by_doc = match spacy.rank_docs(&docs) {
+        Ok(out) => out,
+        Err(err) => {
+            eprintln!(
+                "warning: {} ranker unavailable ({}); NER key entities disabled, lexical retrieval unaffected",
+                spacy.name(),
+                err
+            );
+            HashMap::new()
         }
     };
 
@@ -499,32 +495,22 @@ pub(crate) fn build_doc_record(
         .next()
         .expect("single source document should yield one tier1 input");
 
-    let heuristic = HeuristicKeyEntityRanker;
-    let key_entities = match &options.ner_provider {
-        Tier1NerProvider::Heuristic => heuristic
-            .rank_docs(std::slice::from_ref(&doc))?
-            .remove(&doc.id)
-            .unwrap_or_default(),
-        Tier1NerProvider::Spacy => {
-            let spacy = SpacyKeyEntityRanker {
-                model: options.spacy_model.clone(),
-                script_path: default_spacy_script_path().display().to_string(),
-            };
-            match spacy.rank_docs(std::slice::from_ref(&doc)) {
-                Ok(mut out) => out.remove(&doc.id).unwrap_or_default(),
-                Err(err) => {
-                    eprintln!(
-                        "warning: {} ranker unavailable ({}), falling back to heuristic",
-                        spacy.name(),
-                        err
-                    );
-                    heuristic
-                        .rank_docs(std::slice::from_ref(&doc))
-                        .unwrap_or_default()
-                        .remove(&doc.id)
-                        .unwrap_or_default()
-                }
-            }
+    // Luyi 2026-09-29: always NER from spaCy. Fail OPEN with zero NER key
+    // entities when the spaCy subprocess is unavailable (loud warning) —
+    // bekind-np key phrases still flow and lexical retrieval is unaffected.
+    let spacy = SpacyKeyEntityRanker {
+        model: options.spacy_model.clone(),
+        script_path: default_spacy_script_path().display().to_string(),
+    };
+    let key_entities = match spacy.rank_docs(std::slice::from_ref(&doc)) {
+        Ok(mut out) => out.remove(&doc.id).unwrap_or_default(),
+        Err(err) => {
+            eprintln!(
+                "warning: {} ranker unavailable ({}); NER key entities disabled, lexical retrieval unaffected",
+                spacy.name(),
+                err
+            );
+            Vec::new()
         }
     };
 
