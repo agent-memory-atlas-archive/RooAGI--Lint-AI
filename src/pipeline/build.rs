@@ -664,6 +664,7 @@ pub fn build_query_snapshot_from_source_documents(
     let options = PipelineOptions {
         ner_provider: provider.clone(),
         spacy_model: spacy_model.to_string(),
+        lang: crate::lang::Lang::Auto,
         term_ranker: ranker_kind.clone(),
         chunk_strategy: chunk_strategy.clone(),
         chunk_lines,

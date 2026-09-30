@@ -19,8 +19,8 @@ use lint_ai::telemetry::{
     ProviderLifecycleEvent, TelemetrySnapshot,
 };
 use lint_ai::{
-    default_production_pipeline_options, IndexStoreInspection, MemoryIndexLayout, PipelineOptions,
-    DEFAULT_SEGMENT_QUERY_TOP_N,
+    default_production_pipeline_options, lang::Lang, IndexStoreInspection, MemoryIndexLayout,
+    PipelineOptions, DEFAULT_SEGMENT_QUERY_TOP_N,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -66,6 +66,11 @@ struct Args {
     /// best recall-per-latency trade-off (gated coverage-local).
     #[arg(long, value_enum, default_value_t = SegmentRoutingArg::GatedCoverageLocal)]
     segment_routing: SegmentRoutingArg,
+    /// Content language. `auto` (default) detects per text from script
+    /// statistics (plus Spanish signals for Latin text); pass
+    /// `zh`/`ko`/`es`/`en` to force it.
+    #[arg(long, value_enum, default_value = "auto")]
+    lang: Lang,
     /// Project root containing provider hook telemetry under `.lint-ai`.
     #[arg(long)]
     project_root: Option<PathBuf>,
@@ -229,6 +234,7 @@ async fn main() -> anyhow::Result<()> {
         args.fuse_global,
         !args.no_conversational_rerank,
         args.segment_routing.strategy(),
+        args.lang,
     );
     let project_root = args
         .project_root
@@ -344,6 +350,7 @@ fn memory_pipeline_options(
     fuse_global: bool,
     conversational_rerank: bool,
     routing_strategy: SegmentRoutingStrategy,
+    lang: Lang,
 ) -> PipelineOptions {
     if single_index {
         return PipelineOptions {
@@ -373,6 +380,7 @@ fn memory_pipeline_options(
         memory_index_layout: layout,
         fuse_global_arm: fuse_global,
         conversational_rerank,
+        lang,
         ..default_production_pipeline_options()
     }
 }
@@ -820,6 +828,7 @@ fn dashboard_provider_indexes(
                     false,
                     true,
                     SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+                    Lang::Auto,
                 ),
             )
             .ok()?
@@ -1402,7 +1411,8 @@ mod tests {
                 false,
                 false,
                 true,
-                SegmentRoutingStrategy::TypedEvidenceMultiplicative
+                SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+                Lang::Auto
             )
             .memory_index_layout,
             MemoryIndexLayout::Segmented { .. }
@@ -1418,7 +1428,8 @@ mod tests {
                 false,
                 false,
                 true,
-                SegmentRoutingStrategy::TypedEvidenceMultiplicative
+                SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+                Lang::Auto
             )
             .memory_index_layout,
             MemoryIndexLayout::AdaptiveSegmented {
@@ -1439,7 +1450,8 @@ mod tests {
                     false,
                     false,
                     true,
-                    SegmentRoutingStrategy::TypedEvidenceMultiplicative
+                    SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+                    Lang::Auto
                 )
                 .memory_index_layout,
                 MemoryIndexLayout::Segmented { .. }
@@ -1464,6 +1476,7 @@ mod tests {
             false,
             true,
             SegmentRoutingArg::GatedCoverageLocal.strategy(),
+            Lang::Auto,
         );
         assert!(matches!(
             options.memory_index_layout,
@@ -1511,7 +1524,7 @@ mod tests {
             ),
         ] {
             assert_eq!(arg.strategy(), expected);
-            let options = memory_pipeline_options(None, false, false, false, true, arg.strategy());
+            let options = memory_pipeline_options(None, false, false, false, true, arg.strategy(), Lang::Auto);
             assert!(matches!(
                 options.memory_index_layout,
                 MemoryIndexLayout::Segmented {
@@ -1536,6 +1549,7 @@ mod tests {
             false,
             true,
             SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+            Lang::Auto,
         ));
         service
             .add(AddRequest {
