@@ -1,3 +1,4 @@
+use crate::lang::Lang;
 use deunicode::deunicode;
 use regex::Regex;
 use rust_stemmers::{Algorithm, Stemmer};
@@ -37,7 +38,7 @@ static NORMALIZE_RE: OnceLock<Regex> = OnceLock::new();
 const MAX_EXPANSIONS_PER_TERM: usize = 3;
 const CONCEPTNET_MIN_CONFIDENCE: f32 = 0.82;
 
-pub fn expand_query_terms(input_terms: &[String]) -> ExpandedQuery {
+pub fn expand_query_terms(input_terms: &[String], lang: Lang) -> ExpandedQuery {
     let original_terms = input_terms
         .iter()
         .map(|t| normalize_for_index(t))
@@ -65,7 +66,7 @@ pub fn expand_query_terms(input_terms: &[String]) -> ExpandedQuery {
         // noise that drowns the useful concept bridges (certificate ->
         // degree). The same judgment that identifies the question's focus
         // gates which terms earn expansions.
-        if !is_expandable_concept(term) {
+        if !is_expandable_concept(term, lang) {
             continue;
         }
         let mut count = 0usize;
@@ -195,7 +196,7 @@ mod tests {
     #[test]
     fn expansion_caps_and_dedups() {
         let terms = vec!["install".to_string(), "setup".to_string()];
-        let out = expand_query_terms(&terms);
+        let out = expand_query_terms(&terms, Lang::En);
         assert!(out.expanded_terms.len() <= terms.len() * MAX_EXPANSIONS_PER_TERM);
         for t in &out.expanded_terms {
             assert!(!out.original_terms.contains(t));
@@ -204,14 +205,14 @@ mod tests {
 
     #[test]
     fn install_expands_from_generated_subset() {
-        let out = expand_query_terms(&["install".to_string()]);
+        let out = expand_query_terms(&["install".to_string()], Lang::En);
         assert!(!out.expanded_terms.is_empty());
         assert!(out.expanded_terms.iter().all(|t| !t.is_empty()));
     }
 
     #[test]
     fn symmetric_relations_expand_back_to_source_terms() {
-        let out = expand_query_terms(&["occupation".to_string()]);
+        let out = expand_query_terms(&["occupation".to_string()], Lang::En);
         assert!(
             out.expanded_terms.iter().any(|t| t == "job"),
             "expected job expansion, got {:?}",
@@ -221,7 +222,7 @@ mod tests {
 
     #[test]
     fn expanded_lexical_subset_covers_common_search_terms() {
-        let out = expand_query_terms(&["job".to_string(), "bug".to_string()]);
+        let out = expand_query_terms(&["job".to_string(), "bug".to_string()], Lang::En);
         assert!(!out.expanded_terms.is_empty());
         for term in &out.expanded_terms {
             assert!(!out.original_terms.contains(term));
@@ -233,7 +234,7 @@ mod tests {
         // Regression test for a LoCoMo miss: the question asked about a
         // "certificate" while the dialogue turn said "degree". The bridge is
         // associative (ConceptNet RelatedTo), not a WordNet synonym.
-        let out = expand_query_terms(&["certificate".to_string()]);
+        let out = expand_query_terms(&["certificate".to_string()], Lang::En);
         let degree = normalize_for_index("degree");
         assert!(
             out.expanded_terms.iter().any(|t| t == &degree),
@@ -248,7 +249,7 @@ mod tests {
         // to john"), question words, and generic verbs must not pollute the
         // expansion with noise that drowns the useful concept bridges.
         for noise in ["john", "what", "did", "receiv"] {
-            let out = expand_query_terms(&[noise.to_string()]);
+            let out = expand_query_terms(&[noise.to_string()], Lang::En);
             assert!(
                 out.expanded_terms.is_empty(),
                 "noise term {:?} should not expand, got {:?}",
@@ -267,7 +268,7 @@ mod tests {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let out = expand_query_terms(&terms);
+        let out = expand_query_terms(&terms, Lang::En);
         let degree = normalize_for_index("degree");
         assert!(
             out.expanded_terms.iter().any(|t| t == &degree),
@@ -293,30 +294,214 @@ mod tests {
 /// implementation would use behood/entity recognition instead of the
 /// hardcoded name list, but the classification logic (focus vs constraint)
 /// is systematic and applies uniformly.
-pub(crate) fn is_expandable_concept(term: &str) -> bool {
+pub(crate) fn is_expandable_concept(term: &str, lang: Lang) -> bool {
     // Question words (stemmed forms)
-    const QUESTION_WORDS: &[&str] = &["what", "when", "where", "who", "whom", "whos", "why", "how", "which", "would"];
+    const QUESTION_WORDS: &[&str] = &[
+        "what", "when", "where", "who", "whom", "whos", "why", "how", "which", "would",
+    ];
     if QUESTION_WORDS.contains(&term) {
         return false;
     }
     // Pronouns (stemmed forms)
-    const PRONOUNS: &[&str] = &["i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them", "my", "your", "his", "its", "our", "their", "mine", "yours", "hers", "ours", "theirs"];
+    const PRONOUNS: &[&str] = &[
+        "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them", "my",
+        "your", "his", "its", "our", "their", "mine", "yours", "hers", "ours", "theirs",
+    ];
     if PRONOUNS.contains(&term) {
         return false;
     }
     // Generic verbs whose expansions are noise (stemmed forms)
-    const GENERIC_VERBS: &[&str] = &["be", "is", "are", "was", "were", "been", "do", "doe", "did", "done", "have", "has", "had", "get", "got", "make", "take", "give", "receiv", "go", "come", "see", "know", "think", "want", "like", "use"];
+    const GENERIC_VERBS: &[&str] = &[
+        "be", "is", "are", "was", "were", "been", "do", "doe", "did", "done", "have", "has", "had",
+        "get", "got", "make", "take", "give", "receiv", "go", "come", "see", "know", "think",
+        "want", "like", "use",
+    ];
     if GENERIC_VERBS.contains(&term) {
         return false;
     }
     // Auxiliary/modal verbs (stemmed forms) — structure, not concepts.
-    const AUXILIARIES: &[&str] = &["will", "shall", "should", "can", "could", "may", "might", "must"];
+    const AUXILIARIES: &[&str] = &[
+        "will", "shall", "should", "can", "could", "may", "might", "must",
+    ];
     if AUXILIARIES.contains(&term) {
         return false;
     }
+    if matches!(lang, Lang::Es) {
+        // Spanish: same categories, stemmed/deunicoded forms (callers pass
+        // `normalize_for_index` output, so "qué" arrives as "que").
+        // Only consulted for Lang::Es — surface forms like "no"/"son"
+        // would otherwise collide with English words.
+        const QUESTION_WORDS_ES: &[&str] = &[
+            "que", "quien", "cual", "donde", "cuando", "cuanto", "cuanta", "como", "porque",
+        ];
+        if QUESTION_WORDS_ES.contains(&term) {
+            return false;
+        }
+        const PRONOUNS_ES: &[&str] = &[
+            "yo", "tu", "el", "ella", "ello", "nosotro", "nosotra", "vosotro", "vosotra", "me",
+            "te", "se", "no", "le", "mi", "su", "nuestro", "nuestra", "vuestra",
+        ];
+        if PRONOUNS_ES.contains(&term) {
+            return false;
+        }
+        const GENERIC_VERBS_ES: &[&str] = &[
+            "ser", "estar", "haber", "tener", "hacer", "poder", "decir", "ir", "dar", "ver",
+            "saber", "querer", "es", "son", "era", "eran", "fue", "fueron", "sea", "sean", "esta",
+            "estan", "estaba", "estaban", "estoy", "hay", "tiene", "tienen", "hace", "hacen",
+            "puede", "pueden", "debe", "deben",
+        ];
+        if GENERIC_VERBS_ES.contains(&term) {
+            return false;
+        }
+        const AUXILIARIES_ES: &[&str] = &["he", "ha", "hemo", "han", "haya", "hayan"];
+        if AUXILIARIES_ES.contains(&term) {
+            return false;
+        }
+    }
     // Common person names (stemmed forms) - expanding these gives biblical/
     // historical noise ("john" -> "gospel accord to john")
-    const COMMON_NAMES: &[&str] = &["john", "maria", "jame", "michael", "david", "sarah", "jennifer", "robert", "lisa", "william", "elizabeth", "thoma", "charle", "mary", "joseph", "daniel", "matthew", "anthony", "mark", "paul", "steven", "andrew", "joshua", "kevin", "brian", "georg", "edward", "jason", "jeffrey", "ryan", "jacob", "nichola", "gary", "jon", "nathan", "eric", "jonathan", "stephen", "scott", "justin", "brandon", "frank", "gregory", "samuel", "raymond", "alexander", "patrick", "jack", "denni", "jerry", "tyler", "aaron", "henry", "dougla", "nathaniel", "peter", "kyle", "ethan", "walter", "jeremy", "keith", "roger", "gerald", "carl", "arthur", "lawrenc", "dylan", "bryan", "gabriel", "logan", "alan", "juan", "wayn", "ralph", "roy", "eugen", "russel", "bobby", "victor", "martin", "philip", "todd", "jesse", "austin", "dian", "nanc", "sandra", "betty", "ashley", "dorothi", "kimberli", "michel", "carol", "ruth", "sharon", "laura", "helen", "deborah", "jessica", "shirley", "cynthia", "angela", "melissa", "brenda", "amy", "anna", "rebecca", "virginia", "kathleen", "pamela", "martha", "debra", "amanda", "stephani", "carolyn", "christina", "marilyn", "janet", "caitlin", "france", "heather", "diane", "julie", "olivia", "joyc", "victoria", "kelly", "christin", "russ", "emma", "monica", "melani", "audrey", "jolen", "sam", "evan", "dave", "calvin", "nat", "nate"];
+    const COMMON_NAMES: &[&str] = &[
+        "john",
+        "maria",
+        "jame",
+        "michael",
+        "david",
+        "sarah",
+        "jennifer",
+        "robert",
+        "lisa",
+        "william",
+        "elizabeth",
+        "thoma",
+        "charle",
+        "mary",
+        "joseph",
+        "daniel",
+        "matthew",
+        "anthony",
+        "mark",
+        "paul",
+        "steven",
+        "andrew",
+        "joshua",
+        "kevin",
+        "brian",
+        "georg",
+        "edward",
+        "jason",
+        "jeffrey",
+        "ryan",
+        "jacob",
+        "nichola",
+        "gary",
+        "jon",
+        "nathan",
+        "eric",
+        "jonathan",
+        "stephen",
+        "scott",
+        "justin",
+        "brandon",
+        "frank",
+        "gregory",
+        "samuel",
+        "raymond",
+        "alexander",
+        "patrick",
+        "jack",
+        "denni",
+        "jerry",
+        "tyler",
+        "aaron",
+        "henry",
+        "dougla",
+        "nathaniel",
+        "peter",
+        "kyle",
+        "ethan",
+        "walter",
+        "jeremy",
+        "keith",
+        "roger",
+        "gerald",
+        "carl",
+        "arthur",
+        "lawrenc",
+        "dylan",
+        "bryan",
+        "gabriel",
+        "logan",
+        "alan",
+        "juan",
+        "wayn",
+        "ralph",
+        "roy",
+        "eugen",
+        "russel",
+        "bobby",
+        "victor",
+        "martin",
+        "philip",
+        "todd",
+        "jesse",
+        "austin",
+        "dian",
+        "nanc",
+        "sandra",
+        "betty",
+        "ashley",
+        "dorothi",
+        "kimberli",
+        "michel",
+        "carol",
+        "ruth",
+        "sharon",
+        "laura",
+        "helen",
+        "deborah",
+        "jessica",
+        "shirley",
+        "cynthia",
+        "angela",
+        "melissa",
+        "brenda",
+        "amy",
+        "anna",
+        "rebecca",
+        "virginia",
+        "kathleen",
+        "pamela",
+        "martha",
+        "debra",
+        "amanda",
+        "stephani",
+        "carolyn",
+        "christina",
+        "marilyn",
+        "janet",
+        "caitlin",
+        "france",
+        "heather",
+        "diane",
+        "julie",
+        "olivia",
+        "joyc",
+        "victoria",
+        "kelly",
+        "christin",
+        "russ",
+        "emma",
+        "monica",
+        "melani",
+        "audrey",
+        "jolen",
+        "sam",
+        "evan",
+        "dave",
+        "calvin",
+        "nat",
+        "nate",
+    ];
     if COMMON_NAMES.contains(&term) {
         return false;
     }

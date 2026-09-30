@@ -785,6 +785,13 @@ impl MemoryIndex {
             writer.commit()?;
             ram
         };
+        // Latin-script tokenization for all TEXT fields (overrides the
+        // built-in "default"): ASCII-fold accented tokens (niño -> nino) so
+        // the index and the deunicoded boosted fields agree on every term.
+        // Pure-ASCII text is unaffected. QueryParser resolves the field
+        // tokenizer through this manager, so index-time and query-time
+        // folding agree.
+        crate::index::latin_tokenizer::register_latin_tokenizer(&index);
         let reader = index.reader()?;
         let schema_ref = index.schema();
         let doc_id_f = schema_ref.get_field("doc_id")?;

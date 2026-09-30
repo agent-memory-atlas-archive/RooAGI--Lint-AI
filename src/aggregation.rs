@@ -1,4 +1,5 @@
 use crate::index::{MemoryIndex, SearchResult};
+use crate::lang::Lang;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -55,6 +56,14 @@ pub fn classify_aggregate_intent(query: &str) -> Option<AggregateIntent> {
         || q.contains(" number of")
         || q.contains("count the ")
         || q.contains("times did i")
+        // Spanish: "cuántos"/"cuántas" (how many). Checked before the
+        // "cuánto" (how much) branch: "cuántos" contains "cuánto".
+        || q.contains("cuántos")
+        || q.contains("cuántas")
+        || q.contains("cuantos")
+        || q.contains("cuantas")
+        || q.contains("número de")
+        || q.contains("numero de")
     {
         return Some(AggregateIntent::Count);
     }
@@ -64,6 +73,15 @@ pub fn classify_aggregate_intent(query: &str) -> Option<AggregateIntent> {
         || q.contains("combined")
         || q.contains("in all")
         || q.contains("sum ")
+        // Spanish: "cuánto" (how much), "total", "en total", "suma".
+        // Unaccented "cuanto" is guarded against "en cuanto (a)"
+        // (regarding / as soon as), which is not a quantity question.
+        || q.contains("cuánto")
+        || q.contains("cuánta")
+        || q.contains("cuanta")
+        || q.contains("en total")
+        || q.contains("suma")
+        || (q.contains("cuanto") && !q.contains("en cuanto"))
     {
         return Some(AggregateIntent::Sum);
     }
@@ -71,7 +89,10 @@ pub fn classify_aggregate_intent(query: &str) -> Option<AggregateIntent> {
 }
 
 pub fn normalize_number_words(query: &str) -> String {
-    replace_numbers_in_text(query, &Language::english(), 0.0)
+    match Lang::Auto.resolve(query) {
+        Lang::Es => replace_numbers_in_text(query, &Language::spanish(), 0.0),
+        _ => replace_numbers_in_text(query, &Language::english(), 0.0),
+    }
 }
 
 pub fn build_aggregate_output(
@@ -300,6 +321,38 @@ mod tests {
         let out = normalize_number_words("I walked two miles and ate three apples");
         assert!(out.contains("2"));
         assert!(out.contains("3"));
+    }
+
+    #[test]
+    fn classifies_spanish_count_and_sum_intents() {
+        assert_eq!(
+            classify_aggregate_intent("¿Cuántos libros leí?"),
+            Some(AggregateIntent::Count)
+        );
+        assert_eq!(
+            classify_aggregate_intent("¿Cuántas veces fui?"),
+            Some(AggregateIntent::Count)
+        );
+        assert_eq!(
+            classify_aggregate_intent("¿Cuánto gasté en total?"),
+            Some(AggregateIntent::Sum)
+        );
+        assert_eq!(
+            classify_aggregate_intent("¿Cuál fue la suma total?"),
+            Some(AggregateIntent::Sum)
+        );
+        // "en cuanto a" (regarding) is not a quantity question.
+        assert_eq!(
+            classify_aggregate_intent("En cuanto a los resultados"),
+            None
+        );
+    }
+
+    #[test]
+    fn normalizes_spanish_number_words() {
+        let out = normalize_number_words("caminé tres kilómetros y comí dos manzanas");
+        assert!(out.contains("3"), "got {out}");
+        assert!(out.contains("2"), "got {out}");
     }
 
     #[test]

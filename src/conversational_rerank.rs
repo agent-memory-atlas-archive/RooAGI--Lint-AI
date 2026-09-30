@@ -73,6 +73,13 @@ fn tokenize_simple(s: &str) -> HashSet<String> {
 const WH_WORDS: &[&str] = &[
     "what", "when", "where", "who", "whom", "whose", "which", "why", "how", "do", "does", "did",
     "is", "are", "was", "were", "can", "could", "would", "have", "has", "will",
+    // Spanish interrogatives (accented and unaccented — leading position
+    // plus the ¿/trim handling below disambiguates; none are English words.
+    // Unaccented "como" is excluded: "como" (like/as) opens statements too
+    // often, while "cómo" (how) is unambiguous.
+    "qué", "quién", "quiénes", "cuál", "cuáles", "dónde", "cuándo", "cuánto", "cuánta", "cuántos",
+    "cuántas", "cómo", "quien", "quienes", "cual", "cuales", "donde", "cuando", "cuanto", "cuanta",
+    "cuantos", "cuantas",
 ];
 
 /// Strip the indexer's structured "{role}: " prefix so turn-level heuristics
@@ -114,7 +121,37 @@ pub fn is_wh_question(query: &str) -> bool {
                 .to_lowercase();
             matches!(
                 lw.as_str(),
-                "what" | "when" | "where" | "who" | "whom" | "whose" | "which" | "why" | "how"
+                "what"
+                    | "when"
+                    | "where"
+                    | "who"
+                    | "whom"
+                    | "whose"
+                    | "which"
+                    | "why"
+                    | "how"
+                    | "qué"
+                    | "quién"
+                    | "quiénes"
+                    | "cuál"
+                    | "cuáles"
+                    | "dónde"
+                    | "cuándo"
+                    | "cuánto"
+                    | "cuánta"
+                    | "cuántos"
+                    | "cuántas"
+                    | "cómo"
+                    | "quien"
+                    | "quienes"
+                    | "cual"
+                    | "cuales"
+                    | "donde"
+                    | "cuando"
+                    | "cuanto"
+                    | "cuanta"
+                    | "cuantos"
+                    | "cuantas"
             )
         })
         .unwrap_or(false)

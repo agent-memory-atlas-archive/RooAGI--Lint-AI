@@ -1,5 +1,6 @@
 mod build;
 mod helpers;
+pub(crate) mod latin_tokenizer;
 mod model;
 mod query;
 mod query_terms;
