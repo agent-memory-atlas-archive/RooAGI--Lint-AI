@@ -9,6 +9,7 @@ use axum::{
 };
 use clap::Parser;
 use jsonwebtoken::{decode, DecodingKey, Validation};
+use lint_ai::lang::Lang;
 use lint_ai::memory_api::{
     AddRequest, DeleteRequest, GetRequest, ListRequest, MemoryService, SearchRequest,
     SupersedeRequest, UpdateRequest,
@@ -69,6 +70,10 @@ struct Args {
     /// Project root containing provider hook telemetry under `.lint-ai`.
     #[arg(long)]
     project_root: Option<PathBuf>,
+    /// Content language. `auto` (default) detects per text from script
+    /// statistics; drives the default spaCy model.
+    #[arg(long, value_enum, default_value = "auto")]
+    lang: Lang,
 }
 
 /// CLI-selectable segment routing strategies. Variant names map to the router
@@ -229,6 +234,7 @@ async fn main() -> anyhow::Result<()> {
         args.fuse_global,
         !args.no_conversational_rerank,
         args.segment_routing.strategy(),
+        args.lang,
     );
     let project_root = args
         .project_root
@@ -344,10 +350,12 @@ fn memory_pipeline_options(
     fuse_global: bool,
     conversational_rerank: bool,
     routing_strategy: SegmentRoutingStrategy,
+    lang: Lang,
 ) -> PipelineOptions {
     if single_index {
         return PipelineOptions {
             memory_index_layout: MemoryIndexLayout::Single,
+            lang,
             ..default_production_pipeline_options()
         };
     }
@@ -373,6 +381,7 @@ fn memory_pipeline_options(
         memory_index_layout: layout,
         fuse_global_arm: fuse_global,
         conversational_rerank,
+        lang,
         ..default_production_pipeline_options()
     }
 }
@@ -819,6 +828,7 @@ fn dashboard_provider_indexes(
                     false,
                     true,
                     SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+                    Lang::Auto,
                 ),
             )
             .ok()?
@@ -1401,7 +1411,8 @@ mod tests {
                 false,
                 false,
                 true,
-                SegmentRoutingStrategy::TypedEvidenceMultiplicative
+                SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+                Lang::Auto
             )
             .memory_index_layout,
             MemoryIndexLayout::Segmented { .. }
@@ -1417,7 +1428,8 @@ mod tests {
                 false,
                 false,
                 true,
-                SegmentRoutingStrategy::TypedEvidenceMultiplicative
+                SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+                Lang::Auto
             )
             .memory_index_layout,
             MemoryIndexLayout::AdaptiveSegmented {
@@ -1438,7 +1450,8 @@ mod tests {
                     false,
                     false,
                     true,
-                    SegmentRoutingStrategy::TypedEvidenceMultiplicative
+                    SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+                    Lang::Auto
                 )
                 .memory_index_layout,
                 MemoryIndexLayout::Segmented { .. }
@@ -1463,6 +1476,7 @@ mod tests {
             false,
             true,
             SegmentRoutingArg::GatedCoverageLocal.strategy(),
+            Lang::Auto,
         );
         assert!(matches!(
             options.memory_index_layout,
@@ -1510,7 +1524,15 @@ mod tests {
             ),
         ] {
             assert_eq!(arg.strategy(), expected);
-            let options = memory_pipeline_options(None, false, false, false, true, arg.strategy());
+            let options = memory_pipeline_options(
+                None,
+                false,
+                false,
+                false,
+                true,
+                arg.strategy(),
+                Lang::Auto,
+            );
             assert!(matches!(
                 options.memory_index_layout,
                 MemoryIndexLayout::Segmented {
@@ -1535,6 +1557,7 @@ mod tests {
             false,
             true,
             SegmentRoutingStrategy::TypedEvidenceMultiplicative,
+            Lang::Auto,
         ));
         service
             .add(AddRequest {

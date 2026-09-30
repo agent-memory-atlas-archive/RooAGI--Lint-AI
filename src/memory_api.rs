@@ -72,10 +72,10 @@ pub struct SearchRequest {
     /// user-ownership filter. Absent means no additional filtering.
     #[serde(default)]
     pub filters: Option<BTreeMap<String, String>>,
-    /// Content language override (`"en"`, `"zh"`, `"ko"`). Absent (default)
-    /// auto-detects per text from script statistics. Currently selects the
-    /// spaCy model for the structured-relations path; lexical retrieval is
-    /// script-aware regardless.
+    /// Content language override (`"en"`, `"zh"`, `"ko"`, `"es"`). Absent
+    /// (default) auto-detects per text from script statistics. Currently
+    /// selects the spaCy model for the structured-relations path; lexical
+    /// retrieval is script-aware regardless.
     #[serde(default)]
     pub lang: Option<Lang>,
 }
