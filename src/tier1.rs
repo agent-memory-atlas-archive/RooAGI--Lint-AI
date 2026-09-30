@@ -1,3 +1,4 @@
+use crate::lang::Lang;
 use anyhow::Result;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -287,12 +288,24 @@ fn acronym_regex() -> &'static Regex {
 
 fn content_word_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"[A-Za-z][A-Za-z0-9_-]{2,}").expect("valid regex"))
+    RE.get_or_init(|| {
+        Regex::new(&format!(
+            r"[{L}][{L}0-9_\-]{{2,}}",
+            L = crate::tokenizer::LATIN_LETTER
+        ))
+        .expect("valid regex")
+    })
 }
 
 fn rake_token_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"[A-Za-z][A-Za-z0-9_-]{1,}").expect("valid regex"))
+    RE.get_or_init(|| {
+        Regex::new(&format!(
+            r"[{L}][{L}0-9_\-]{{1,}}",
+            L = crate::tokenizer::LATIN_LETTER
+        ))
+        .expect("valid regex")
+    })
 }
 
 #[derive(Serialize)]
@@ -455,7 +468,14 @@ mod subprocess_tests {
 }
 
 fn default_stopwords() -> HashSet<&'static str> {
-    [
+    default_stopwords_for_lang(Lang::En)
+}
+
+/// Stopwords for the YAKE/RAKE/TextRank term rankers, per language.
+/// Spanish adds its function words (raw accented forms — rankers tokenize
+/// the raw document content, so "está" must match before normalization).
+fn default_stopwords_for_lang(lang: Lang) -> HashSet<&'static str> {
+    let mut stop: HashSet<&'static str> = [
         "a", "an", "the", "is", "are", "was", "were", "be", "to", "for", "of", "on", "in", "by",
         "as", "or", "and", "that", "this", "with", "from", "it", "its", "at", "into", "about",
         "over", "under", "also", "can", "could", "should", "would", "will", "may", "might", "do",
@@ -464,7 +484,36 @@ fn default_stopwords() -> HashSet<&'static str> {
     ]
     .iter()
     .copied()
-    .collect()
+    .collect();
+    if matches!(lang, Lang::Es) {
+        // Raw accented forms only: ranker tokens come from the raw content
+        // (lowercased, accents kept) via `tokenize_words`.
+        stop.extend(
+            [
+                "el", "la", "los", "las", "lo", "un", "una", "unos", "unas", "del", "al", "de",
+                "en", "a", "por", "para", "con", "sin", "sobre", "entre", "hasta", "desde",
+                "hacia", "durante", "mediante", "según", "tras", "ante", "bajo", "contra", "y",
+                "e", "ni", "o", "u", "pero", "porque", "aunque", "sino", "pues", "que", "yo", "tú",
+                "él", "ella", "ello", "nosotros", "nosotras", "vosotros", "vosotras", "ellos",
+                "ellas", "me", "te", "se", "nos", "les", "mi", "mis", "tus", "su", "sus",
+                "nuestro", "nuestra", "vuestra", "este", "esta", "estos", "estas", "ese", "esa",
+                "esos", "esas", "aquel", "aquella", "aquellos", "aquellas", "esto", "eso",
+                "aquello", "no", "sí", "también", "tampoco", "muy", "tan", "más", "menos", "mucho",
+                "mucha", "muchos", "muchas", "poco", "poca", "bastante", "además", "así", "aquí",
+                "ahí", "allí", "ahora", "hoy", "ayer", "mañana", "siempre", "nunca", "jamás", "ya",
+                "todavía", "aún", "entonces", "luego", "después", "antes", "es", "son", "era",
+                "eran", "fue", "fueron", "sea", "sean", "está", "están", "estaba", "estaban",
+                "estoy", "hay", "ha", "han", "he", "hemos", "tiene", "tienen", "hace", "hacen",
+                "puede", "pueden", "debe", "deben", "qué", "quién", "quiénes", "cuál", "cuáles",
+                "dónde", "cuándo", "cuánto", "cuánta", "cuántos", "cuántas", "cómo", "donde",
+                "cuando", "cual", "cuales", "quien", "quienes", "como", "cuanto", "cuanta",
+                "cuantos", "cuantas",
+            ]
+            .iter()
+            .copied(),
+        );
+    }
+    stop
 }
 
 fn tokenize_words(content: &str) -> Vec<String> {
@@ -496,7 +545,7 @@ impl ImportantTermRanker for YakeStyleTermRanker {
     }
 
     fn rank_terms(&self, doc: &Tier1DocInput) -> Vec<RankedTerm> {
-        let stop = default_stopwords();
+        let stop = default_stopwords_for_lang(Lang::Auto.resolve(&doc.content));
         let raw_tokens = tokenize_words(&doc.content);
         let total = raw_tokens.len().max(1) as f32;
         let sentences = sentence_count(&doc.content) as f32;
@@ -547,7 +596,7 @@ impl ImportantTermRanker for RakeStyleTermRanker {
     }
 
     fn rank_terms(&self, doc: &Tier1DocInput) -> Vec<RankedTerm> {
-        let stop = default_stopwords();
+        let stop = default_stopwords_for_lang(Lang::Auto.resolve(&doc.content));
         let tokens: Vec<String> = rake_token_regex()
             .find_iter(&doc.content)
             .map(|m| m.as_str().to_lowercase())
@@ -673,7 +722,7 @@ impl ImportantTermRanker for TextRankStyleTermRanker {
     }
 
     fn rank_terms(&self, doc: &Tier1DocInput) -> Vec<RankedTerm> {
-        let stop = default_stopwords();
+        let stop = default_stopwords_for_lang(Lang::Auto.resolve(&doc.content));
         let tokens: Vec<String> = tokenize_words(&doc.content)
             .into_iter()
             .filter(|t| !stop.contains(t.as_str()))

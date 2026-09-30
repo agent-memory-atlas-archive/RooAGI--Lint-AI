@@ -37,15 +37,14 @@
 //! The library API is for embedding: custom hosts, the Python bindings,
 //! and the HTTP server binary.
 
-pub mod cli;
 pub mod board;
+pub mod cli;
 mod config;
 pub mod conversation_state;
 mod conversational_rerank;
 pub mod daemon;
 mod ids;
 pub mod index;
-pub mod lang;
 #[cfg(any(
     feature = "claude-code",
     feature = "codex",
@@ -55,6 +54,7 @@ pub mod lang;
     feature = "openclaw"
 ))]
 mod integrations;
+pub mod lang;
 #[cfg(any(
     feature = "claude-code",
     feature = "codex",
@@ -80,6 +80,7 @@ pub mod temporal_fact;
 // of the public API; use the re-exports above instead.
 mod adapters;
 mod aggregation;
+pub mod behood_query;
 mod chunking;
 mod claim_extractor;
 mod corpus_graph;
@@ -88,9 +89,8 @@ mod filters;
 mod graph;
 mod ownership;
 mod query_expansion;
-pub mod question_focus;
-pub mod behood_query;
 mod query_semantics;
+pub mod question_focus;
 mod report;
 mod review;
 mod rules;

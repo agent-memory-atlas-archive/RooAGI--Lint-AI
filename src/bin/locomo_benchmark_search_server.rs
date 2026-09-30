@@ -218,8 +218,11 @@ fn build_conv_index(conv: &LocomoConversation) -> Result<ConvIndex> {
     // phrases are already attached above; queuing them again would only
     // redo identical extraction in the background.
     options.key_phrase_enrichment = false;
-    let extractor_output =
-        extract_relations_via_spacy(&rel_turns, std::time::Duration::from_secs(120));
+    let extractor_output = extract_relations_via_spacy(
+        &rel_turns,
+        std::time::Duration::from_secs(120),
+        lint_ai::DEFAULT_SPACY_MODEL,
+    );
     let mut phrases_by_session: HashMap<String, Vec<lint_ai::KeyPhrase>> = HashMap::new();
     for kp in extractor_output.key_phrases {
         phrases_by_session
