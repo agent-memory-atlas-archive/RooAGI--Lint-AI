@@ -262,7 +262,7 @@ fn run_key_phrase_extraction_bounded(
             &turns,
             script.as_deref(),
             std::time::Duration::from_secs(timeout_secs),
-            crate::tier1::DEFAULT_SPACY_MODEL,
+            crate::segments::relations::spacy_model_for_turns(&turns),
         );
         let _ = tx.send(out);
     });
@@ -383,7 +383,7 @@ fn relations_index_for(
         let output = extract_relations_via_spacy(
             &turns,
             std::time::Duration::from_secs(RELATIONS_EXTRACT_TIMEOUT_SECS),
-            crate::tier1::DEFAULT_SPACY_MODEL,
+            crate::segments::relations::spacy_model_for_turns(&turns),
         );
         let _ = tx.send(output.relations);
     });

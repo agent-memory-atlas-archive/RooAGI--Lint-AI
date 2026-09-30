@@ -357,6 +357,20 @@ pub(crate) fn extractor_script_path() -> std::path::PathBuf {
 /// empty output and the caller declines to the adaptive retrieval path.
 ///
 /// The production path (no script override) goes through the long-lived
+/// Choose the spaCy model for a batch of relation-extraction turns by
+/// detecting the dominant language of the turn texts. Spanish turns select
+/// `es_core_news_sm`; everything else falls back to the default model.
+/// Callers that already know the document language should prefer the
+/// explicit `model` parameter; this is for turn batches of unknown mix.
+pub fn spacy_model_for_turns(turns: &[RelationTurn]) -> &'static str {
+    let combined: String = turns
+        .iter()
+        .map(|t| t.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    crate::lang::default_spacy_model_for_lang(crate::lang::Lang::Auto.resolve(&combined))
+}
+
 /// extractor daemon so the spaCy model load is paid once per process; every
 /// daemon failure falls back to a one-shot subprocess, which is also what
 /// script overrides always use.
@@ -2089,6 +2103,29 @@ pub fn query_structured(index: &RelationIndex, question: &str) -> Option<Vec<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spacy_model_for_turns_selects_spanish() {
+        let es_turns = vec![RelationTurn {
+            speaker: "María".to_string(),
+            text: "¿Dónde está la biblioteca de Madrid? Fui ayer por la mañana.".to_string(),
+            session_id: "s1".to_string(),
+            turn_idx: 0,
+            doc_id: "d1".to_string(),
+            session_date: None,
+        }];
+        assert_eq!(spacy_model_for_turns(&es_turns), "es_core_news_sm");
+
+        let en_turns = vec![RelationTurn {
+            speaker: "John".to_string(),
+            text: "Where is the Madrid library? I went yesterday morning.".to_string(),
+            session_id: "s1".to_string(),
+            turn_idx: 0,
+            doc_id: "d1".to_string(),
+            session_date: None,
+        }];
+        assert_eq!(spacy_model_for_turns(&en_turns), "en_core_web_sm");
+    }
 
     /// Raw triples exactly as `scripts/spacy_relations.py` emits them for the
     /// gold turns (verified by running the script; see /tmp/gen_fix.py).
