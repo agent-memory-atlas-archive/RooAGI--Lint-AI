@@ -8,35 +8,38 @@
 //! time.
 //!
 //! Behavior: replicates tantivy's default tokenizer exactly (split on
-//! non-alphanumeric, drop tokens >= 40 bytes, lowercase) plus one step —
-//! [`deunicode`] transliteration of each token ("niño" -> "nino").
+//! non-alphanumeric, drop tokens >= 40 bytes, lowercase) with one
+//! difference — accented Latin characters are PRESERVED, not folded.
+//! "niño" indexes as "niño", not "nino".
 //!
-//! Why: `normalize_for_index` deunicodes Latin text, so the boosted fields
-//! (`entities`, `important_terms`) hold ASCII-folded tokens. If the
-//! content/headings fields kept raw accented tokens, a query for "niño"
-//! would match `content` ("niño") but never the boosted fields ("nino"),
-//! silently dropping the 2.0–2.4x entity/term boosts for every accented
-//! term. Folding at the tokenizer level keeps index and query in agreement
-//! on every TEXT field, for both the index side and the QueryParser side
-//! (which resolves the field tokenizer through the same manager).
-//! Pure-ASCII text indexes byte-identically to before this change
-//! (deunicode is the identity on ASCII).
+//! Why no deunicode: script agreement. Like Hangul (which is never
+//! romanized), accented Latin is indexed in its original script, and queries
+//! are tokenized the same way — index and query meet in the same script.
+//! Lossy ASCII-folding ("niño" -> "nino") would conflate distinct words
+//! ("sí" = yes vs "si" = if) and is irreversible. Accent-insensitive
+//! matching (query "nino" finding doc "niño") is a documented limitation,
+//! not a silent conflation.
+//!
+//! Note: `normalize_for_index` (used for the boosted `entities` and
+//! `important_terms` fields) still deunicodes. That is a SEPARATE field with
+//! its own consistent normalization — query terms for boosted fields go
+//! through the same `normalize_for_index`, so index and query agree within
+//! each field. The content field (this tokenizer) agrees on the original
+//! script; the boosted fields agree on the normalized form.
+//! Pure-ASCII text indexes byte-identically to before this change.
 //!
 //! MERGE NOTE (parallel zh branch): the zh branch registers its own
 //! `"default"` override (`CjkTokenizer`: Han runs -> character bigrams,
 //! other runs -> default-tokenizer replication). The two overrides target
-//! the same name and must be unified: fold the deunicode step into
-//! `CjkTokenizer::push_default_token` (the Latin path ONLY — never apply
-//! deunicode to the Han bigram path, it would Pinyin-transliterate the
-//! bigrams) and delete this module.
+//! the same name and must be unified: the shared tokenizer must preserve
+//! accents on the Latin path (no deunicode) and use character bigrams on
+//! the Han path. Delete this module after the merge.
 
-use deunicode::deunicode;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 /// Drop tokens whose UTF-8 byte length reaches this limit — the same limit
 /// as tantivy's built-in default (`RemoveLongFilter::limit(40)` keeps
-/// `len < 40`). Applied after deunicode (which can lengthen a token, e.g.
-/// "æ" -> "ae").
+/// `len < 40`). Applied to the lowercased (but not folded) token.
 const MAX_TOKEN_BYTES: usize = 40;
 
 /// Latin-script tokenizer. See the module docs for the contract.
@@ -65,14 +68,14 @@ impl Tokenizer for LatinTokenizer {
                          end: usize,
                          position: &mut usize| {
             let word = &text[start..end];
-            // ASCII-fold first (matches `normalize_for_index` ordering),
-            // then lowercase — same as LowerCaser after folding.
-            let folded = deunicode(word).to_lowercase();
-            if folded.len() >= MAX_TOKEN_BYTES || folded.is_empty() {
+            // Lowercase only — NO deunicode. Accents are preserved so index
+            // and query meet in the same script ("niño" == "niño").
+            let lowered = word.to_lowercase();
+            if lowered.len() >= MAX_TOKEN_BYTES || lowered.is_empty() {
                 return;
             }
             tokens.push(Token {
-                text: folded,
+                text: lowered,
                 offset_from: start,
                 offset_to: end,
                 position: *position,
@@ -137,9 +140,12 @@ mod tests {
     }
 
     #[test]
-    fn folds_accents() {
-        assert_eq!(tokens_of("El niño juega"), vec!["el", "nino", "juega"]);
-        assert_eq!(tokens_of("¿Dónde está?"), vec!["donde", "esta"]);
+    fn preserves_accents() {
+        // Script agreement: accented forms are indexed as-is, not folded.
+        assert_eq!(tokens_of("El niño juega"), vec!["el", "niño", "juega"]);
+        assert_eq!(tokens_of("¿Dónde está?"), vec!["dónde", "está"]);
+        // "sí" (yes) and "si" (if) stay distinct — no lossy conflation.
+        assert_eq!(tokens_of("sí si"), vec!["sí", "si"]);
     }
 
     #[test]
