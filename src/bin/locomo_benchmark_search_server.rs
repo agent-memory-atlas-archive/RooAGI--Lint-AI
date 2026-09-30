@@ -35,7 +35,9 @@ use axum::{
 use clap::Parser;
 use lint_ai::memory_api::MemoryService;
 use lint_ai::question_focus::identify_focus;
-use lint_ai::segments::relations::{analyze_fact_question, extract_relations_via_spacy, RelationTurn};
+use lint_ai::segments::relations::{
+    analyze_fact_question, extract_relations_via_spacy, RelationTurn,
+};
 use lint_ai::{default_production_pipeline_options, search_results, SourceDocument};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -218,8 +220,11 @@ fn build_conv_index(conv: &LocomoConversation) -> Result<ConvIndex> {
     // phrases are already attached above; queuing them again would only
     // redo identical extraction in the background.
     options.key_phrase_enrichment = false;
-    let extractor_output =
-        extract_relations_via_spacy(&rel_turns, std::time::Duration::from_secs(120));
+    let extractor_output = extract_relations_via_spacy(
+        &rel_turns,
+        std::time::Duration::from_secs(120),
+        "en_core_web_sm",
+    );
     let mut phrases_by_session: HashMap<String, Vec<lint_ai::KeyPhrase>> = HashMap::new();
     for kp in extractor_output.key_phrases {
         phrases_by_session
@@ -248,7 +253,9 @@ fn build_conv_index(conv: &LocomoConversation) -> Result<ConvIndex> {
         .map(|(sid, kps)| {
             (
                 sid.clone(),
-                kps.iter().map(|kp| (kp.text.clone(), kp.kind.clone())).collect(),
+                kps.iter()
+                    .map(|kp| (kp.text.clone(), kp.kind.clone()))
+                    .collect(),
             )
         })
         .collect();

@@ -90,6 +90,9 @@ ALLOWED_MODELS = {
     "en_core_web_sm",
     "en_core_web_md",
     "en_core_web_lg",
+    "zh_core_web_sm",
+    "ko_core_news_sm",
+    "es_core_news_sm",
 }
 
 PLACE_LABELS = {"GPE", "LOC", "FAC"}

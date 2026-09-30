@@ -1572,7 +1572,9 @@ mod tests {
                 session_id: None,
                 scope: None,
                 filters: None,
-})
+
+                lang: None,
+            })
             .unwrap();
         assert!(response.data.iter().any(|m| m.content.contains("zephyr")));
     }
